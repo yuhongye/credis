@@ -46,17 +46,10 @@ struct sdshdr *header(const sds s) {
  * 不会对init和initlen做check, 因为是一个server而不是一个lib，所有的调用都在可控范围内?
  */
 sds sdsnewlen(const void *init, size_t initlen) {
-    struct sdshdr *sh;
-    sh = zmalloc(sizeof(struct sdshdr) + initlen + 1);
-#ifdef SDS_ABORT_ON_OOM
-    if (sh == NULL) {
-        sdsOOMAbort();
-    }
-#else
+    struct sdshdr *sh = malloc_or_abort(sizeof(struct sdshdr) + initlen + 1);
     if (sh == NULL) {
         return NULL;
     }
-#endif
 
     sh->len = initlen;
     sh->free = 0;
@@ -207,7 +200,7 @@ sds sdscatprintf(sds s, const char *fmt, ...) {
 
         va_start(ap, fmt);
         vsnprintf(buf, buflen, fmt, ap);
-        va_end(va);
+        va_end(ap);
         if (buf[buflen-2] != '\0') {
             zfree(buf);
             buflen *= 2;
@@ -222,17 +215,222 @@ sds sdscatprintf(sds s, const char *fmt, ...) {
     return t;
 }
 
+/**
+ * 去除sds前面和后面的cset部分
+ * 使用了strchr函数, 因此只要连续的开头和结尾字符在cset里面，就会trim掉，而不需要跟cset的顺序一致
+ * 所以cset这个名字起的还是很有意义的
+ */
+sds sdstrim(sds s, const char *cset) {
+    struct sdshdr *sh = header(s);
+    char *start, *end;
+    char *sp, *ep;
 
+    sp = start = s;
+    ep = end =  s + sdslen(s) - 1;
+    while (sp <= end && strchr(cset, *sp)) {
+        sp++;
+    }
+    while (ep > start && strchr(cset, *ep)) {
+        ep--;
+    }
+    size_t len = (sp > ep) ? 0 : (ep-sp + 1);
+
+    // 前面trim
+    if (sh->buf != sp) {
+        memmove(sh->buf, sp, len);
+    }
+
+    sh->buf[len] = '\0';
+    sh->free = sh->free + (sh->len - len);
+    sh->len = len;
+    return s;
+}
+
+/**
+ * 获取实际的index，当index < 0时表示从后往前数
+ * @param index 指定的index
+ * @param 总共的长度
+ */
+long backwardOrZeor(long index, long totalSize) {
+    if (index < 0) {
+        index += totalSize;
+    }
+    if (index < 0) {
+        // 这个地方失败是不是更合理
+        index = 0;
+    }
+    return index;
+}
+
+/**
+ * 仅保留[start,end]部分的内容
+ * start和end如果小于0,意味着下标是从后往前数
+ */
+sds sdsrange(sds s, long start, long end) {
+    struct sdshdr *sh = header(s);
+    size_t len = sdslen(s);
+    if (len == 0) {
+        return s;
+    }
+
+    start = backwardOrZeor(start, len);
+    end = backwardOrZeor(end, len);
+
+    size_t newlen = 0;
+    if (start <= end) {
+        // 如果start和end超出了有效范围，则会保留最后一个字符，这是为了什么?
+        if (start >= (signed)len) {
+            start = len - 1;
+        }
+        if (end >= (signed)len) {
+            end = len - 1;
+        }
+        // TODO: 这样合理吗？已经超出index范围了，为什么还要操作
+        newlen = (start > end) ? 0 : (end - start) + 1;
+    } else {
+        start = 0;
+    }
+
+    if (start != 0) {
+        memmove(sh->buf, sh->buf + start, newlen);
+    }
+    sh->buf[newlen] = 0;
+    sh->free += sh->len - newlen;
+    sh->len = newlen;
+
+    return s;
+}
+
+void sdstolower(sds s) {
+    int len = sdslen(s);
+    for (int i = 0; i < len; i++) {
+        s[i] = tolower(s[i]);
+    }
+}
+
+/**
+ * 比较两个sds
+ */
+void sdstoupper(sds s) {
+    int len = sdslen(s);
+    for (int i = 0; i < len; i++) {
+        s[i] = toupper(s[i]);
+    }
+}
+
+int sdscmp(sds s1, sds s2) {
+    size_t len1 = sdslen(s1);
+    size_t len2 = sdslen(s2);
+    size_t min = (len1 < len2) ? len1 : len2;
+
+    size_t cmp = memcmp(s1, s2, min);
+    return cmp == 0 ? len1 - len2 : cmp;
+}
+
+/**
+ * 使用sep来spit s
+ *
+ * @param count 分割后产生的结果大小，这个函数会设置它的值
+ * @return 分割后的sds array
+ */
+sds *sdssplitlen(char *s, int len, char *sep, int seplen, int *count) {
+    int slots = 5;
+    sds *tokens = malloc_or_abort(sizeof(sds) * slots);
+    if(seplen < 1 || len < 0 || tokens == NULL) {
+        return NULL;
+    }
+
+    int elements = 0;
+    int start = 0;
+    for (int i = 0; i < (len - (seplen-1)); i++) {
+        if (slots < elements + 2) {
+            slots *= 2;
+            sds *newtokens = zrealloc(tokens, sizeof(sds) * slots);
+            if (newtokens == NULL)  {
+                #ifdef SDS_ABORT_ON_OOM
+                sdsOOMAbort();
+                #else
+                goto cleanup;
+                #endif
+            }
+            tokens = newtokens;
+        }
+
+        if ((seplen == 1 && *(s+i) == sep[0]) || (memcmp(s+i, sep, seplen) == 0)) {
+            tokens[elements] = sdsnewlen(s+start, i - start);
+            if (tokens[elements] == NULL) {
+                goto cleanup;
+            }
+            elements++;
+            // 下一个token开始的位置
+            start = i + seplen;
+            // -1是因为接下来还要++
+            i += seplen - 1;
+        }
+    }
+
+    // 添加最后一个token，因为之前判断扩容的时候是<elements+2，因此tokens里面一定是未位置的
+    tokens[elements] = sdsnewlen(s+start, len-start);
+    if (tokens[elements] == NULL) {
+        goto cleanup;
+    }
+
+    *count = ++elements;
+    return tokens;
+
+    #ifndef SDS_ABORT_ON_OOM
+    cleanup: {
+        for (int i = 0; i < elements; i++) {
+            sdsfree(tokens[i]);
+        }
+        zfree(tokens);
+        return NULL;
+    }
+    #endif
+}
+
+/** debug */
 void display(sds s) {
     struct sdshdr *sh = header(s);
-    printf("%s\n", sh->buf);
+    printf("s value  : %s\n", sh->buf);
+    printf("s length : %ld\n", sh->len);
+    printf("s free   : %ld\n", sh->free);
 }
 
 int main() {
-    char *c = "caoxiaoyong";
-    sds s = sdsnewlen(c, 11);
+    sds s = sdsempty();
     display(s);
-    display(sdsdup(s));
+
+    sdscpy(s, "caoxy");
+    printf("\nafter copy caoxy\n");
+    display(s);
+
+    sdscat(s, "email");
+    printf("\n after concat email\n");
+    display(s);
+
+    sdscatlen(s, "@email.combalabala", 10);
+    printf("\n after concat @email.combalala front 10 chars\n");
+    display(s);
+
+    sdsfree(s);
+
+    s = sdsnew("airbnb cao xiao yong welcom airbnb");
+    sdstrim(s, " airbnb");
+    printf("\n after trim airbnb \n");
+    display(s);
+
+    int *count = malloc_or_abort(sizeof(int));
+    sds *tokens = sdssplitlen(s, sdslen(s), " ", 1, count);
+    printf("\nsplit count: %d\n", *count);
+    for (int i = 0; i < *count; i++) {
+        display(tokens[i]);
+        putchar('\n');
+    }
+
+    sdsrange(s, 100, 100);
+    printf("\n after range\n");
+    display(s);
 
     return 0;
 }
