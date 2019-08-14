@@ -18,8 +18,11 @@ typedef struct List {
     ListNode *head;
     ListNode *tail;
 
+    // 用来拷贝node->value
     void *(*dup)(void *ptr);
+    // 用来free node->value
     void (*free)(void *ptr);
+    /** 需要一个方法来判断value之间的关系，因为不知道具体存储value是什么类型 */
     int (*match)(void *ptr, void *key);
     unsigned int len;
 
