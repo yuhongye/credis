@@ -4,8 +4,8 @@
 #include <stdarg.h>
 #include <assert.h>
 
-#include "dict.h"
 #include "zmalloc.h"
+#include "dict.h"
 
 /*************************** Utility functions **********************/
 static void _dictPanic(const char *fmt, ...) {
@@ -85,6 +85,7 @@ static void _dictReset(Dict *ht) {
 
 /**
  * create a new hash table
+ * 这里没有申请bucket的空间，等到add的时候会判断是否有足够的空间，不足时自动扩容
  */
 Dict *dictCreate(DictType *type, void *privDataPtr) {
     Dict *ht = _dictAlloc(sizeof(*ht));
@@ -259,10 +260,10 @@ int _dictClear(Dict *ht) {
             entry = nextEntry;
         }
 
-        _dictFree(ht->table);
-        _dictReset(ht);
-        return DICT_OK;
     }
+    _dictFree(ht->table);
+    _dictReset(ht);
+    return DICT_OK;
 }
 
 void dictRelease(Dict *ht) {
@@ -491,6 +492,9 @@ static void _dictStringKeyValCopyHTValDestructor(void *privdata, void *value) {
     _dictFree(value);
 }
 
+/**
+ * add时不拷贝val，remove时不free val
+ */
 DictType dictTypeHeapStringCopyKey = {
     _dictStringCopyHTHashFunction,
     _dictStringCopyHTKeyDup,
@@ -500,15 +504,21 @@ DictType dictTypeHeapStringCopyKey = {
     NULL // val destructor
 };
 
+/**
+ * 不拷贝key，但是free key
+ */
 DictType dictTypeHeapStrings = {
     _dictStringCopyHTHashFunction, 
-    NULL,
-    NULL,
+    NULL, // key dup
+    NULL, // val dup
     _dictStringCopyHTKeyCompare,
     _dictStringCopyHTKeyDestructor,
-    NULL
+    NULL // val destructor
 };
 
+/**
+ * copy key value, free key value
+ */
 DictType dictTypeHeapStringCopyKeyValue = {
     _dictStringCopyHTHashFunction,
     _dictStringCopyHTKeyDup,
@@ -518,6 +528,38 @@ DictType dictTypeHeapStringCopyKeyValue = {
     _dictStringKeyValCopyHTValDestructor
 };
 
+
+/*************************** debug *****************************/
+
+void display(Dict *dict) {
+    DictIterator *it = dictGetIterator(dict);
+    DictEntry *entry = dictNext(it);
+    printf("dict size: %d\n", dict->used);
+    while (entry != NULL) {
+        printf("\t%s: %s\n", entry->key, entry->val);
+        entry = dictNext(it);
+    }
+
+    dictReleaseIterator(it);
+}
+
+int main() {
+    void *privdata = _dictAlloc(1);
+    Dict *dict = dictCreate(&dictTypeHeapStringCopyKeyValue, privdata);
+    dictAdd(dict, "name", "cxy");
+    char key[] = {'n', 'a', 'm', 'e', 'x',  '1', '1', '1','\0'};
+    char value[] = {'c', 'x', 'y', 'x', '1', '1', '1', '\0'};
+    int start = 'a';
+    for (int i = 0; i < 20190801; i++) {
+        key[4] = (start + i);
+        value[3] = (start + i);
+        dictAdd(dict, key, value);
+    }
+    // display(dict);
+    dictPrintStats(dict);
+
+    return 0;
+}
 
 
 

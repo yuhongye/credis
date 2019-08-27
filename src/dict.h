@@ -48,7 +48,12 @@ typedef struct DictIterator {
 // dict的默认大小
 #define DICT_INITIAL_SIZE 16
 
-/*********************************Macros *****************************/
+/********************************* Macros *****************************/
+/**
+ * 1. 对于要设置的(key, value)根据keyDup和valueDup是否为空来决定是否需要进行copy
+ * 2. 在删除entry时，根据keyDestructor和valueDestructor来决定是否进行free
+ */
+
 #define dictFreeEntryVal(ht, entry) \
     if((ht)->type->valDestructor) \
         (ht)->type->valDestructor((ht)->privdata, (entry)->val)
@@ -68,7 +73,7 @@ typedef struct DictIterator {
     if ((ht)->type->keyDestructor) \
         (ht)->type->keyDestructor((ht)->privdata, (entry)->key)
 
-#define distSetHashKey(ht, entry, _key_) do { \
+#define dictSetHashKey(ht, entry, _key_) do { \
     if ((ht)->type->keyDup) \
         entry->key = (ht)->type->keyDup((ht)->privdata, _key_); \
     else \
