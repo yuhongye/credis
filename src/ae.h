@@ -62,10 +62,12 @@ AeEventLoop *aeCreateEventLoop(void);
 void aeDeleteEventLoop(AeEventLoop *eventLoop);
 void aeStop(AeEventLoop *eventLoop);
 
-int aeCreateFileEvent(AeEventLoop *eventLoop, int fd, int mask, aeFileProc *proc, void *clientData, aeEventFinalizeProc *finalizeProc);
+int aeCreateFileEvent(AeEventLoop *eventLoop, int fd, int mask, 
+    aeFileProc *proc, void *clientData, aeEventFinalizeProc *finalizeProc);
 int aeDeleteFileEvent(AeEventLoop *eventLoop, int fd, int mask);
 
-long long aeCreateTimeEvent(AeEventLoop *eventLoop, long long milliseconds, aeTimeProc *proc, void *clientData, aeEventFinalizeProc *finalizeProc);
+long long aeCreateTimeEvent(AeEventLoop *eventLoop, long long milliseconds, 
+    aeTimeProc *proc, void *clientData, aeEventFinalizeProc *finalizeProc);
 int aeDeleteTimeEvent(AeEventLoop *eventLoop, long long id);
 
 int aeProcessEvents(AeEventLoop *eventLoop, int flags);
