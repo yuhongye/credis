@@ -165,3 +165,98 @@ struct RedisServer {
     int sort_alpha;
     int sort_byPattern;
 };
+
+typedef void redisCommandProc(RedisClient *c);
+struct RedisCommand {
+    char *name;
+    redisCommandProc *proc;
+    int arity; // 参数个数
+    int flags;
+};
+
+typedef struct _RedisSortObject {
+    Robj *obj;
+    union {
+        double score;
+        Robj *cmpObj;
+    } u;
+} RedisSortedObject;
+
+typedef struct _RedisSortOperation {
+    int type;
+    Robj *pattern;
+} RedisSortOperation;
+
+struct SharedObjectStruct {
+    Robj *ctrl, *ok, *err, *zerobulk, *nil, *zero, *one, *pong, *space,
+    *minus1, *minus2, *minus3, *minus4,
+    *wrongTypeErr, *noKeyErr, *wrongTypeErrBulk, *noKeyErrBulk,
+    *syntaxErr, *syntaxErrBulk,
+    *select0, *select1, *select2, *select3, *select4, 
+    *select5, *select6, *select7, *select8, *select9;
+} Shared;
+
+/**------------------------- Prototypes -------------------*/
+static void freeStringObject(Robj *o);
+static void freeListObject(Robj *o);
+static void freeSetObject(Robj *o);
+static void descRefCount(void *o);
+static Robj *createObject(int type, void *ptr);
+static void freeClient(RedisClient *c);
+static int loadDb(char *filename);
+static void addReply(RedisClient *c, Robj *obj);
+static void addReplaySds(RedisClient *c, sds s);
+static void incrRefCount(Robj *o);
+static int saveDbBackground(char *filename);
+static Robj *createStringObject(char *ptr, size_t len);
+static void replicationFeedSlaves(struct RedisCommand *cmd, int dictid, Robj **argv, int argc);
+static int syncWithMaster(void);
+
+static void pingCommand(RedisClient *c);
+static void echoCommand(RedisClient *c);
+static void setCommand(RedisClient *c);
+static void setnxCommand(RedisClient *c);
+static void getCommand(RedisClient *c);
+static void delCommand(RedisClient *c);
+static void existsComand(RedisClient *c);
+static void incrCommand(RedisClient *c);
+static void decrCommand(RedisClient *c);
+static void selectCommand(RedisClient *c);
+static void randomkeyCommand(RedisClient *c);
+static void keysCommand(RedisClient *c);
+static void dbsizeCommand(RedisClient *c);
+static void lastsaveCommand(RedisClient *c);
+static void saveCommand(RedisClient *c);
+static void bgsaveCommand(RedisClient *c);
+static void shutdownCommand(RedisClient *c);
+static void moveCommand(RedisClient *c); // move what
+static void renameCommand(RedisClient *c);
+static void renamenxCommand(RedisClient *c);
+static void lpushCommand(RedisClient *c);
+static void rpushCommand(RedisClient *c);
+static void lpopCommand(RedisClient *c);
+static void rpopCommand(RedisClient *c);
+static void llenCommand(RedisClient *c);
+static void lindexCommand(RedisClient *c);
+static void lrangeCommand(RedisClient *c);
+static void ltrimCommand(RedisClient *c);
+static void typeCommand(RedisClient *c);
+static void lsetCommand(RedisClient *c);
+static void saddCommand(RedisClient *c);
+static void sremCommand(RedisClient *c);
+static void sismemberCommand(RedisClient *c);
+static void scardCommand(RedisClient *c);
+static void sinterCommand(RedisClient *c);
+static void sinterstoreCommand(RedisClient *c);
+static void syncCommand(RedisClient *c);
+static void flushdbCommand(RedisClient *c);
+static void flushallCommand(RedisClient *c);
+static void sortCommand(RedisClient *c);
+static void lremCommand(RedisClient *c);
+static void infoCommand(RedisClient *c);
+
+/** --------------------------- Globals -------------------------------- */
+static struct RedisServer sever;
+static struct RedisCommand cmdTable[] = {
+    {"get", getCommand, 2, }
+};
